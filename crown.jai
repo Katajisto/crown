@@ -10,7 +10,8 @@ last\  _time: float64;
 
 // Data values that we manipulate with the widgets:
 
-scroll_value: float;
+scroll_value_bar: float;
+scroll_value_reader: float;
 scroll_value_dragdrop_region: float;
 horizontal_scroll_value: float;
 vertical_scroll_value: float;
@@ -21,6 +22,39 @@ Grocery_Info :: struct {
     name: string;
     should_get := false;
 }
+
+Bible :: struct {
+    translation: string;
+    abbreviation: string;
+    description: string;
+    lang: string;
+    language: string;
+    direction: string;
+    encoding: string;
+    books: [..] Bible_Book;
+}
+
+Bible_Book :: struct {
+    nr: u32;
+    name: string;
+    chapters: [..] Bible_Chapter;
+}
+
+Bible_Chapter :: struct {
+    chapter: u32;
+    name: string;
+    verses: [..] Bible_Verse;
+}
+
+Bible_Verse :: struct {
+    chapter: u32;
+    verse: u32;
+    name: string;
+    text: string;
+}
+
+current_book : int = 0;
+current_chapter : int = 0;
 
 groceries: [..] Grocery_Info;
 
@@ -140,6 +174,8 @@ auto_complete_teas_proc :: (input: string, data: *void) -> (results: [] string, 
 
 auto_complete_teas := Auto_Complete.{auto_complete_teas_proc, null};
 
+bibledata : *Bible;
+
 main :: () {
     #if OS == .WINDOWS {
         Windows :: #import "Windows";
@@ -147,6 +183,11 @@ main :: () {
         // Windows is very bad at thread-switching by default unless you do this. Sad.
         Windows.timeBeginPeriod(1);
     }
+
+    success, bible := json_parse_file("./data/pyharaamattu1992.json", Bible, ignore_unknown=true);
+    bibledata = *bible;
+    print("Success: %\n", success);
+    print("Bible size: %\n", bible.books.count);
 
     my_window = create_window(window_width, window_height, "Crown");
     Simp.set_render_target(my_window);
@@ -242,45 +283,74 @@ draw_one_frame :: (dt: float) {
     // Render the top bar.
     label_theme := my_theme.label_theme;
     label_theme.font       = my_font;
-    r := get_rect(0, 9.5*vh, 2*uw, 0.5*vh);
+    r := get_rect(0, 9.5*vh, 3*uw, 0.5*vh);
     label(r, "Crown v0.1", *label_theme);
-    r.x += 5*vw;
+    r.x = 10*vw - 3*uw;
     r.w = uw;
     label(r, "Theme:", *label_theme);
     r.w = 2*uw;
-    r.x += max(2*vw, 4*vh);
+    r.x += uw;
     dropdown_theme := *my_theme.dropdown_theme;
     dropdown(r, THEME_NAMES, *current_theme, dropdown_theme);
 
 
-    r = get_rect(0, 0, max(2*vw, 4*vh), 9.5*vh);
-    region, inside := begin_scrollable_region(r);
+    r = get_rect(0, 0, 3*uw, 9.5*vh);
+    {
+        region, inside := begin_scrollable_region(r);
 
-    NUM_BUTTONS :: 30;
-    button_height := .5*vh;
+        NUM_BUTTONS :: 30;
+        button_height := .5*vh;
 
-    // @Incomplete: Add the scrolling offset when we have it.
-    // @Incomplete: Scroll value is in pixels, what happens if the screen changes resolution?
-    s := inside;
-    s.y = s.y + s.h - button_height;
-    s.w -= 0.1 * vw;
-    s.x += 0.05 * vw;
-    s.h = button_height;
-    s.y += scroll_value;
-    button_theme.label_theme.alignment = .Center;
-    button_theme.font = null;
+        // @Incomplete: Add the scrolling offset when we have it.
+        // @Incomplete: Scroll value is in pixels, what happens if the screen changes resolution?
+        s := inside;
+        s.y = s.y + s.h - button_height;
+        s.w -= 0.1 * vw;
+        s.x += 0.05 * vw;
+        s.h = button_height;
+        s.y += scroll_value_bar;
+        button_theme.label_theme.alignment = .Center;
+        button_theme.font = null;
 
-    for 1..NUM_BUTTONS {
-        text := tprint("Button %", it);
-        pressed := button(s, text, *button_theme, it);
+        for 0..(bibledata.books.count - 1) {
+            text := tprint("%", bibledata.books[it].name);
+            book_button_theme := my_theme.button_theme;
+            if(it == current_book) {
+                book_button_theme.surface_color = book_button_theme.surface_color_down;
+            }
+            pressed := button(s, text, *book_button_theme, it);
+            if(pressed) {
+                current_book = it;
+            }
 
-        if  it != NUM_BUTTONS  {
-            s.y -= floor(button_height * 1.1 + 0.5);  // Just so r.y is in the right place for end_scrollable_region().
+            if  it != NUM_BUTTONS  {
+                s.y -= floor(button_height * 1.1 + 0.5);  // Just so r.y is in the right place for end_scrollable_region().
+            }
         }
+
+        end_scrollable_region(region, s.x + s.w, s.y, *scroll_value_bar);
+    }
+    {
+        r = get_rect(3*uw, 0, 10*vw - 3*uw, 9.5*vh);
+        region2, inside2 := begin_scrollable_region(r);
+        s2 := inside2;
+        s2.y = s2.y + s2.h - .5*vh;
+        s2.w -= 0.1 * vw;
+        s2.x += 0.05 * vw;
+        s2.h = .5*vh;
+        s2.y += scroll_value_reader;
+
+        cur_chapter := bibledata.books[current_book].chapters[current_chapter];
+    
+        for 0..(cur_chapter.verses.count - 1) {
+            text := tprint("%", cur_chapter.verses[it].text);
+            label(s2, text, *label_theme);
+            s2.y -= floor(.5*vh * 1.1 + 0.5);  // Just so r.y is in the right place for end_scrollable_region().
+        }
+
+        end_scrollable_region(region2, s2.x + s2.w, s2.y, *scroll_value_reader);
     }
 
-    end_scrollable_region(region, s.x + s.w, s.y, *scroll_value);
-    
     draw_popups();  // This draws Subwindows as well.
     Simp.swap_buffers(my_window);
 }
@@ -292,7 +362,7 @@ my_init_fonts :: () {
         working_directory_set = true;
     }
 
-    pixel_height := window_height / 24;
+    pixel_height := window_height / 29;
     my_font = Simp.get_font_at_size("data", "OpenSans-BoldItalic.ttf", pixel_height);
     assert(my_font != null);
 
@@ -323,6 +393,7 @@ Input :: #import "Input";
 #import "Window_Creation";
 
 #import "Basic";
+#import "Jaison";
 Basic :: #import "Basic"; // :CompilerBug  We need this to resolve to_lower for some reason?!
 #import "Math";
 #import "System";  // For get_path_of_running_executable. @Cleanup.
