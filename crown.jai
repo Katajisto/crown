@@ -16,80 +16,10 @@ scroll_value_dragdrop_region: float;
 horizontal_scroll_value: float;
 vertical_scroll_value: float;
 
-// Data values that we manipulate with the widgets:
+#load "ui_elems.jai";
+#load "state.jai";
 
-Grocery_Info :: struct {
-    name: string;
-    should_get := false;
-}
-
-Bible :: struct {
-    translation: string;
-    abbreviation: string;
-    description: string;
-    lang: string;
-    language: string;
-    direction: string;
-    encoding: string;
-    books: [..] Bible_Book;
-}
-
-Bible_Book :: struct {
-    nr: u32;
-    name: string;
-    chapters: [..] Bible_Chapter;
-}
-
-Bible_Chapter :: struct {
-    chapter: u32;
-    name: string;
-    verses: [..] Bible_Verse;
-}
-
-Bible_Verse :: struct {
-    chapter: u32;
-    verse: u32;
-    name: string;
-    text: string;
-}
-
-current_book : int = 0;
-current_chapter : int = 0;
-
-groceries: [..] Grocery_Info;
-
-
-dropped_files: [..] string;
-
-spells: [..] string;  // We make a radio button of which spell to cast.
-current_spell := -1;
-
-INITIAL_STRING_A :: "Lord Dimwit Flathead";
-INITIAL_STRING_B :: "Flood Control Dam #3";
-INITIAL_STRING_C :: "The Troll Room";
-
-INITIAL_STRING_T :: "Golden Monkey";
-
-// string_a, string_b, string_c are where we store the text input strings.
-string_a: string;
-string_b: string;
-string_c: string;
-
-string_t: string;
-
-Damage_Resistance :: enum_flags u16 {
-    PIERCING;
-    SLASHING;
-    CRUSHING;
-    BLUNT;
-    ELECTRICAL :: 0x40;
-    MAGIC;
-    POISON;
-    ELEMENTAL;
-    EMOTIONAL;
-}
-
-damage_resistance: Damage_Resistance;
+state : Crown_State;
 
 THEME_NAMES : [THEME_COUNT] string : .[
     "Default",
@@ -101,80 +31,17 @@ THEME_NAMES : [THEME_COUNT] string : .[
     "HIGH CONTRAST"
 ];
 
-teas :: string.["Earl Gray", "Singapore Breakfast", "Bengal Spice", "Hot Cinnamon Spice", "Tie Guanyin", "Lapsang Souchong", "Royal Pu-Erh", "Chai Juice", "Snore and Peace", "Golden Monkey", "Genmaicha", "Jasmine Pearls", "Sencha", "Gyokuro", "White Claw", "Rooibos", "Alishan Oolong"];
-
-TEXT_FIELD_1 :: #string DONE
-I thence
-Invoke thy aid to my adventurous song,
-That with no middle flight intends to soar
-Above th' Aonian mount, while it pursues
-Things unattempted yet in prose or rhyme.
-And chiefly thou, O Spirit, that dost prefer
-Before all temples th' upright heart and pure,
-Instruct me, for thou know'st; thou from the first
-Wast present, and, with mighty wings outspread,
-Dove-like sat'st brooding on the vast Abyss,
-And mad'st it pregnant: what in me is dark
-Illumine, what is low raise and support;
-That, to the height of this great argument,
-I may assert Eternal Providence,
-And justify the ways of God to men.
-DONE
-
 slider_float_value: float = 27.02;
 slider_int_value  : s32 = 3;
 
 current_theme: s32 = xx Default_Themes.Default;
 my_theme: Overall_Theme;  // This gets filled out by calling the Theme_Proc for current_theme.
 
-picked_color: Vector3 = .{.1, .8, .6};
-
 // For windows that move around autonomously:
 subwindow_info_text:   Subwindow_Info;
 subwindow_info_circle: Subwindow_Info;
 subwindow_info_color_animation_editor: Subwindow_Info;
 subwindows_initted := false;
-
-
-// @Cleanup: Get rid of the need for begins_with_count?
-begins_with_count :: (str: string, prefix: string) -> int {
-    for 0..prefix.count-1 {
-        // Case-insensitive.
-        if it >= str.count return it;
-
-        // @Speed: This is a pretty slow compare.
-        ca := Basic.to_lower(str[it]);    // :CompilerBug
-        cb := Basic.to_lower(prefix[it]);
-/*
-        ca := to_lower(str[it]);
-        cb := to_lower(prefix[it]);
-*/
-        if ca != cb return it;
-    }
-
-    return prefix.count;
-}
-
-auto_complete_teas_proc :: (input: string, data: *void) -> (results: [] string, longest_match_length: int) {
-    results: [..] string;
-
-    longest_match_length := 0;
-    for teas {
-        count := begins_with_count(it, input);
-        if count == input.count {
-            array_add(*results, it);
-            longest_match_length = max(longest_match_length, input.count);
-        }
-
-        longest_match_length = max(longest_match_length, count);
-    }
-
-    return results, longest_match_length;
-}
-
-auto_complete_teas := Auto_Complete.{auto_complete_teas_proc, null};
-
-bibledata : *Bible;
 
 main :: () {
     #if OS == .WINDOWS {
@@ -185,7 +52,12 @@ main :: () {
     }
 
     success, bible := json_parse_file("./data/pyharaamattu1992.json", Bible, ignore_unknown=true);
-    bibledata = *bible;
+    state.cur_bible = bible;
+
+    config_read_success, config := json_parse_file("userdata.json", Crown_User_State, ignore_unknown=true);
+    if config_read_success {
+        state.user = config;
+    }    
     print("Success: %\n", success);
     print("Bible size: %\n", bible.books.count);
 
@@ -193,32 +65,6 @@ main :: () {
     Simp.set_render_target(my_window);
     my_init_fonts();
     ui_init();
-
-    string_a = copy_string(INITIAL_STRING_A);
-    string_b = copy_string(INITIAL_STRING_B);
-    string_c = copy_string(INITIAL_STRING_C);
-    string_t = copy_string(INITIAL_STRING_T);
-
-    // Add some groceries.
-
-    g := array_add(*groceries);
-    g.name = "Apples";
-
-    g = array_add(*groceries);
-    g.name = "Bananas";
-
-    g = array_add(*groceries);
-    g.name = "Moon Chips";
-
-    g = array_add(*groceries);
-    g.name = "Chai Juice";
-
-
-    array_add(*spells, "rezrov");
-    array_add(*spells, "gondar");
-    array_add(*spells, "gnusto");
-    array_add(*spells, "aimfiz");
-
 
     quit := false;
     while !quit {
@@ -258,6 +104,10 @@ main :: () {
         reset_temporary_storage();
         sleep_milliseconds(10);
     }
+    success = json_write_file("userdata.json", state.user);
+    if !success {
+        print("Failed to write out config, sad!\n");
+    }
 }
 
 draw_one_frame :: (dt: float) {
@@ -274,65 +124,25 @@ draw_one_frame :: (dt: float) {
     button_theme := my_theme.button_theme;
     button_theme.font = button_font;
     button_theme.enable_variable_frame_thickness = true;
-    // 'k' is some resolution-adjusting unit of distance. Right now it is
-    // 1/10 of the screen height, so, 108 pixels at 1920x1080.
-    vh := window_height * .1;
-    vw := window_width * .1;
-    uw := max(vw, 2*vh);
 
-    // Render the top bar.
-    label_theme := my_theme.label_theme;
-    label_theme.font       = my_font;
-    r := get_rect(0, 9.5*vh, 3*uw, 0.5*vh);
-    label(r, "Crown v0.1", *label_theme);
-    r.x = 10*vw - 3*uw;
-    r.w = uw;
-    label(r, "Theme:", *label_theme);
-    r.w = 2*uw;
-    r.x += uw;
-    dropdown_theme := *my_theme.dropdown_theme;
-    dropdown(r, THEME_NAMES, *current_theme, dropdown_theme);
+    vh, vw, uw := get_size_units();
 
+    scrollable_region_theme := *my_theme.scrollable_region_theme;
+    scrollable_region_theme.region_background.shape.roundedness = 0;
 
-    r = get_rect(0, 0, 3*uw, 9.5*vh);
-    {
-        region, inside := begin_scrollable_region(r);
+    draw_top_bar(*my_theme);
 
-        NUM_BUTTONS :: 30;
-        button_height := .5*vh;
-
-        // @Incomplete: Add the scrolling offset when we have it.
-        // @Incomplete: Scroll value is in pixels, what happens if the screen changes resolution?
-        s := inside;
-        s.y = s.y + s.h - button_height;
-        s.w -= 0.1 * vw;
-        s.x += 0.05 * vw;
-        s.h = button_height;
-        s.y += scroll_value_bar;
-        button_theme.label_theme.alignment = .Center;
-        button_theme.font = null;
-
-        for 0..(bibledata.books.count - 1) {
-            text := tprint("%", bibledata.books[it].name);
-            book_button_theme := my_theme.button_theme;
-            if(it == current_book) {
-                book_button_theme.surface_color = book_button_theme.surface_color_down;
-            }
-            pressed := button(s, text, *book_button_theme, it);
-            if(pressed) {
-                current_book = it;
-            }
-
-            if  it != NUM_BUTTONS  {
-                s.y -= floor(button_height * 1.1 + 0.5);  // Just so r.y is in the right place for end_scrollable_region().
-            }
-        }
-
-        end_scrollable_region(region, s.x + s.w, s.y, *scroll_value_bar);
+    left_bar_width := 3*uw;
+    
+    if state.user.left_bar_open {
+        draw_left_bar(*my_theme);
+    } else {
+        left_bar_width = 0;
     }
+    
     {
-        r = get_rect(3*uw, 0, 10*vw - 3*uw, 9.5*vh);
-        region2, inside2 := begin_scrollable_region(r);
+        r := get_rect(left_bar_width, 0, 10*vw - left_bar_width, 9.5*vh);
+        region2, inside2 := begin_scrollable_region(r, scrollable_region_theme);
         s2 := inside2;
         s2.y = s2.y + s2.h - .5*vh;
         s2.w -= 0.1 * vw;
@@ -340,12 +150,59 @@ draw_one_frame :: (dt: float) {
         s2.h = .5*vh;
         s2.y += scroll_value_reader;
 
-        cur_chapter := bibledata.books[current_book].chapters[current_chapter];
+        cur_chapter := state.cur_bible.books[state.user.cur_book].chapters[state.user.cur_chapter];
     
+        verse_theme := my_theme.label_theme;
+        verse_theme.font       = story_font;
+        verse_theme.alignment = Text_Alignment.Left;
         for 0..(cur_chapter.verses.count - 1) {
+            bookmark_w := 0.3*uw;
+            total_w := s2.w;
+            s2.w = bookmark_w;
+            bookmark_pressed := button(s2, tprint("%:%", cur_chapter.verses[it].chapter, cur_chapter.verses[it].verse), *button_theme, it);
+            if bookmark_pressed {
+                array_add(*state.user.bookmarks, .{
+                    state.cur_bible.abbreviation,
+                    state.cur_bible.books[state.user.cur_book].name,
+                    state.user.cur_book,
+                    state.user.cur_chapter,
+                    it
+                });
+            }
+            s2.x += bookmark_w;
+            s2.w = total_w - bookmark_w;
+            verse_text := cur_chapter.verses[it].text;
+
+            // Print a single verse:
+            
             text := tprint("%", cur_chapter.verses[it].text);
-            label(s2, text, *label_theme);
-            s2.y -= floor(.5*vh * 1.1 + 0.5);  // Just so r.y is in the right place for end_scrollable_region().
+            total_count := text.count;
+            while total_count > 0 {
+                // Let's just initially say we print 120 character lines.
+                max_line_low := ifx state.user.left_bar_open then 55 else 95;
+                
+                if total_count > max_line_low {
+                    search_space :: 20;
+                    line_breakpoint := 0;
+                    for 0..search_space {
+                        if text.data[max_line_low - it] == 32 {
+                            line_breakpoint = max_line_low - it + 1;
+                        }
+                    }
+                    total_count -= line_breakpoint;
+                    text.count = line_breakpoint;
+                    label(s2, text, *verse_theme);
+                    text.data += line_breakpoint;
+                    s2.y -= floor(.5*vh * 1.1 + 0.5);  // Just so r.y is in the right place for end_scrollable_region().
+                } else {
+                    text.count = total_count;
+                    label(s2, text, *verse_theme);
+                    total_count = 0;
+                    s2.y -= floor(.5*vh * 1.5 + 0.5);  // Just so r.y is in the right place for end_scrollable_region().
+                }
+            }
+            s2.x -= bookmark_w;
+            s2.w = total_w;
         }
 
         end_scrollable_region(region2, s2.x + s2.w, s2.y, *scroll_value_reader);
